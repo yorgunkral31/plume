@@ -14,6 +14,21 @@
 #import <UIKit/UIKit.h>
 #endif
 #import <Foundation/Foundation.h>
+#if TARGET_OS_IPHONE
+#import <QuartzCore/QuartzCore.h>
+
+// iOS never raises a ProMotion display above 60 Hz unless something actively
+// requests a higher frame rate range; a Metal layer presenting against the
+// 60 Hz vsync can't escape it on its own. Keep an idle CADisplayLink alive
+// purely to request the panel's full range.
+@interface PlumeDisplayLinkTarget : NSObject
+- (void)plumeDisplayLinkTick:(CADisplayLink *)link;
+@end
+
+@implementation PlumeDisplayLinkTarget
+- (void)plumeDisplayLinkTick:(CADisplayLink *)link {}
+@end
+#endif
 
 #if TARGET_OS_OSX
 static uint32_t plumeGetEntryProperty(io_registry_entry_t entry, CFStringRef propertyName) {
@@ -103,6 +118,22 @@ namespace plume {
             updateWindowAttributesInternal(true);
             updateRefreshRateInternal(true);
         }
+
+#if TARGET_OS_IPHONE
+        if (@available(iOS 15.0, *)) {
+            void *handle = windowHandle;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UIWindow *uiWindow = (__bridge UIWindow *)handle;
+                float maxFPS = (float)[[uiWindow screen] maximumFramesPerSecond];
+                if (maxFPS > 60.0f) {
+                    CADisplayLink *link = [CADisplayLink displayLinkWithTarget:[PlumeDisplayLinkTarget new]
+                                                                      selector:@selector(plumeDisplayLinkTick:)];
+                    link.preferredFrameRateRange = CAFrameRateRangeMake(60.0f, maxFPS, maxFPS);
+                    [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+                }
+            });
+        }
+#endif
     }
 
     CocoaWindow::~CocoaWindow() {}
