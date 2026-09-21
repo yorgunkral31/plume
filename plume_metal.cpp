@@ -1619,6 +1619,13 @@ namespace plume {
 
         if (error != nullptr) {
             fprintf(stderr, "MTLDevice newRenderPipelineState: failed with error %s.\n", error->localizedDescription()->utf8String());
+            // Dump the vertex layout so attribute/shader type mismatches can be identified from device logs.
+            for (uint32_t i = 0; i < desc.inputElementsCount; i++) {
+                const RenderInputElement &element = desc.inputElements[i];
+                fprintf(stderr, "  inputElement[%u]: semantic=%s%u location=%u format=%u offset=%u slot=%u\n",
+                    i, element.semanticName ? element.semanticName : "?", element.semanticIndex, element.location,
+                    (uint32_t)element.format, element.alignedByteOffset, element.slotIndex);
+            }
             return;
         }
 
@@ -2491,6 +2498,10 @@ namespace plume {
     void MetalCommandList::drawInstanced(const uint32_t vertexCountPerInstance, const uint32_t instanceCount, const uint32_t startVertexLocation, const uint32_t startInstanceLocation) {
         assert(activeGraphicsPipelineLayout != nullptr);
 
+        // Skip draws whose pipeline failed to compile; encoding with a null PSO is undefined behavior.
+        if (activeRenderState == nullptr || activeRenderState->renderPipelineState == nullptr)
+            return;
+
         MetalAutoreleasePool releasePool;
         checkActiveRenderEncoder();
         checkForUpdatesInGraphicsState();
@@ -2500,6 +2511,10 @@ namespace plume {
 
     void MetalCommandList::drawIndexedInstanced(const uint32_t indexCountPerInstance, const uint32_t instanceCount, const uint32_t startIndexLocation, const int32_t baseVertexLocation, const uint32_t startInstanceLocation) {
         assert(activeGraphicsPipelineLayout != nullptr);
+
+        // Skip draws whose pipeline failed to compile; encoding with a null PSO is undefined behavior.
+        if (activeRenderState == nullptr || activeRenderState->renderPipelineState == nullptr)
+            return;
 
         MetalAutoreleasePool releasePool;
         checkActiveRenderEncoder();
@@ -3395,7 +3410,7 @@ namespace plume {
     void MetalCommandList::checkForUpdatesInGraphicsState() {
         // Pipeline state - only update if the actual pipeline object changed
         if (dirtyGraphicsState.pipelineState) {
-            if (activeRenderState && activeRenderState->renderPipelineState != stateCache.lastPipelineState) {
+            if (activeRenderState && activeRenderState->renderPipelineState != nullptr && activeRenderState->renderPipelineState != stateCache.lastPipelineState) {
                 activeRenderEncoder->setRenderPipelineState(activeRenderState->renderPipelineState);
                 stateCache.lastPipelineState = activeRenderState->renderPipelineState;
             }
